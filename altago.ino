@@ -19,6 +19,7 @@
 #define assert(x)
 #endif
 
+#include <EEPROM.h>
 #include "pitches.h"
 
 #define MAX_HITS   400
@@ -40,7 +41,8 @@ typedef enum {
     CFG_NO = 0,
     CFG_1,
     CFG_2,
-    CFG_B
+    CFG_B,
+    CFG_BC
 } TCFG;
 
 typedef struct {
@@ -49,7 +51,27 @@ typedef struct {
     u16 dt  : 13;
 } THIT;
 
-THIT hits[MAX_HITS];
+typedef struct {
+    u16  hit;
+    THIT hits[MAX_HITS];
+} Save;
+static Save S;
+
+void EEPROM_Load (void) {
+    for (int i=0; i<sizeof(Save); i++) {
+        ((byte*)&S)[i] = EEPROM[i];
+    }
+}
+
+void EEPROM_Save (void) {
+    for (int i=0; i<sizeof(Save); i++) {
+        EEPROM[i] = ((byte*)&S)[i];
+    }
+}
+
+void EEPROM_Default (void) {
+    S.hit = 0;
+}
 
 TCFG IN_Cfg (void) {
     static u32  NOW;
@@ -118,25 +140,37 @@ void loop () {};
 void setup (void)
 {
     Serial.begin(9600);
+
     pinMode(PIN_CFG        , INPUT_PULLUP);
     pinMode(PIN_JOGS+JOG_A , INPUT_PULLUP);
     pinMode(PIN_JOGS+JOG_B , INPUT_PULLUP);
     pinMode(PIN_JOGS+JOG_C , INPUT_PULLUP);
     pinMode(PIN_JOGS+JOG_D , INPUT_PULLUP);
 
-    int HIT = 0;
+    EEPROM_Load();
+    goto _CONTINUE;
 
-    // jogos
+    // JOGOS
     while (1)
     {
-        // sequencias
+_RESTART:
+        tone(PIN_TONE, NOTE_C5, 2000);
+        S.hit = 0;
+        EEPROM_Save();
+
+_CONTINUE:
+        // SEQUENCIAS
         while (1)
         {
             // espera apito
             TCFG cfg;
             while ((cfg=IN_Cfg()) < CFG_2);
-            if (cfg == CFG_B) {
-                goto _RESTART;
+            switch (cfg) {
+                case CFG_B:
+                    goto _RESTART;
+                case CFG_BC:
+                    EEPROM_Default();
+                    goto _RESTART;
             }
             assert(cfg == CFG_2);
             tone(PIN_TONE, NOTE_C7, 500);
@@ -148,14 +182,14 @@ void setup (void)
             tone(PIN_TONE, NOTE_C5, 50);
 
             // saque
-            hits[HIT].jog = JOG;
-            hits[HIT].cab = false;
-            hits[HIT].dt  = 0;
-            HIT++;
+            S.hits[S.hit].jog = JOG;
+            S.hits[S.hit].cab = false;
+            S.hits[S.hit].dt  = 0;
+            S.hit++;
 
             u32 NOW = millis();
 
-            // troca de bolas
+            // TOQUES
             while (1)
             {
                 // queda
@@ -167,11 +201,11 @@ void setup (void)
                 TJOG jog = IN_Jog();
                 if (jog!=JOG_NO && jog!=JOG)
                 {
-                    hits[HIT].jog = jog;
+                    S.hits[S.hit].jog = jog;
 
                     u32  now = millis();
                     u32  dt  = now - NOW;
-                    hits[HIT].dt = min(MAX_DT,dt);
+                    S.hits[S.hit].dt = min(MAX_DT,dt);
 
                     tone(PIN_TONE, NOTE_C5, 50);        // antes de IN_Jog_Alta
 
@@ -179,9 +213,9 @@ void setup (void)
                     if (alta) {
                         tone(PIN_TONE, NOTE_C4, 30);
                     }
-                    hits[HIT].cab = alta;
+                    S.hits[S.hit].cab = alta;
 
-                    HIT++;
+                    S.hit++;
                     JOG = jog;
                     NOW = now;
                 }
@@ -189,14 +223,14 @@ void setup (void)
 
 _FALL:
             Serial.println("---");
-            Serial.println(HIT);
+            Serial.println(S.hit);
             Serial.println("---");
-            for (int i=0; i<HIT; i++) {
-                Serial.print(hits[i].jog);
+            for (int i=0; i<S.hit; i++) {
+                Serial.print(S.hits[i].jog);
                 Serial.print("  ");
-                Serial.print(hits[i].cab);
+                Serial.print(S.hits[i].cab);
                 Serial.print("  ");
-                Serial.println(hits[i].dt);
+                Serial.println(S.hits[i].dt);
             }
 
             tone(PIN_TONE, NOTE_C4, 100);
@@ -206,11 +240,7 @@ _FALL:
             tone(PIN_TONE, NOTE_C2, 300);
             delay(310);
 
-            delay(500);
+            EEPROM_Save();
         }
-
-_RESTART:
-        tone(PIN_TONE, NOTE_C5, 2000);
-        HIT = 0;
     }
 }
