@@ -117,61 +117,80 @@ void setup (void)
     pinMode(PIN_JOGS+JOG_C , INPUT_PULLUP);
     pinMode(PIN_JOGS+JOG_D , INPUT_PULLUP);
 
+    int HIT = 0;
+
     while (1)
     {
-        static bool FALL = true;
-        static int  HIT = 0;
-        static TJOG JOG = JOG_NO;
-        static u32  NOW;
+        // espera apito
+        while (IN_Cfg() != CFG_2);
+        tone(PIN_TONE, NOTE_C7, 500);
 
-        if (IN_Cfg() == CFG_2) {
-            FALL = true;
-            Serial.println("---");
-            Serial.println(HIT);
-            Serial.println("---");
-            for (int i=0; i<HIT; i++) {
-                Serial.print(hits[i].jog);
-                Serial.print("  ");
-                Serial.print(hits[i].cab);
-                Serial.print("  ");
-                Serial.println(hits[i].dt);
+        TJOG JOG;
+
+        // espera saque
+        while ((JOG=IN_Jog()) == JOG_NO);
+        tone(PIN_TONE, NOTE_C5, 50);
+
+        // saque
+        hits[HIT].jog = JOG;
+        hits[HIT].cab = false;
+        hits[HIT].dt  = 0;
+        HIT++;
+
+        u32 NOW = millis();
+
+        // troca de bolas
+        while (1)
+        {
+            // queda
+            if (IN_Cfg() == CFG_2) {
+                goto _FALL;
             }
 
-            tone(PIN_TONE, NOTE_C4, 100);
-            delay(110);
-            tone(PIN_TONE, NOTE_C3, 100);
-            delay(110);
-            tone(PIN_TONE, NOTE_C2, 300);
-            delay(310);
+            // toque
+            TJOG jog = IN_Jog();
+            if (jog!=JOG_NO && jog!=JOG)
+            {
+                hits[HIT].jog = jog;
 
-            delay(500);
-        }
-
-        TJOG jog = IN_Jog();
-        if (jog!=JOG_NO && jog!=JOG) {
-            u32 now = millis();
-            tone(PIN_TONE, NOTE_C5, 50);
-
-            hits[HIT].jog = jog;
-
-            bool alta = IN_Jog_Alta(jog);
-            hits[HIT].cab = alta;
-            if (alta) {
-                tone(PIN_TONE, NOTE_C4, 30);
-            }
-
-            if (FALL) {
-                hits[HIT].dt = 0;
-            } else {
-                u32 dt = now - NOW;
+                u32  now = millis();
+                u32  dt  = now - NOW;
                 hits[HIT].dt = min(MAX_DT,dt);
+
+                tone(PIN_TONE, NOTE_C5, 50);        // antes de IN_Jog_Alta
+
+                bool alta = IN_Jog_Alta(jog);       // apos tone
+                if (alta) {
+                    tone(PIN_TONE, NOTE_C4, 30);
+                }
+                hits[HIT].cab = alta;
+
+                HIT++;
+                JOG = jog;
+                NOW = now;
             }
-                
-            JOG = jog;
-            NOW = now;
-            HIT += 1;
-            FALL = false;
         }
+
+_FALL:
+        Serial.println("---");
+        Serial.println(HIT);
+        Serial.println("---");
+        for (int i=0; i<HIT; i++) {
+            Serial.print(hits[i].jog);
+            Serial.print("  ");
+            Serial.print(hits[i].cab);
+            Serial.print("  ");
+            Serial.println(hits[i].dt);
+        }
+
+        tone(PIN_TONE, NOTE_C4, 100);
+        delay(110);
+        tone(PIN_TONE, NOTE_C3, 100);
+        delay(110);
+        tone(PIN_TONE, NOTE_C2, 300);
+        delay(310);
+
+        delay(500);
     }
 }
 
