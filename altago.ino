@@ -22,12 +22,14 @@
 #include <EEPROM.h>
 #include "pitches.h"
 
-#define MAX_HITS   400
-#define MAX_DT     8191     // 2^13-1
+#define REF_TIMEOUT 10      // 5 mins
 
-#define PIN_JOGS   2
-#define PIN_CFG    6
-#define PIN_TONE   11
+#define MAX_HITS    400
+#define MAX_DT      8191    // 2^13-1
+
+#define PIN_JOGS    2
+#define PIN_CFG     6
+#define PIN_TONE    11
 
 typedef enum {
     JOG_NO = -1,
@@ -42,7 +44,7 @@ typedef enum {
     CFG_1,
     CFG_2,
     CFG_B,
-    CFG_BC
+    CFG_BD
 } TCFG;
 
 typedef struct {
@@ -52,10 +54,21 @@ typedef struct {
 } THIT;
 
 typedef struct {
-    u16  hit;
-    THIT hits[MAX_HITS];
+    u32  timeout;   // ms       (tempo maximo de jogo)
+    u16  toq;
+    THIT toqs[MAX_HITS];
 } Save;
 static Save S;
+
+typedef struct {
+    u32  tempo;     // ms       (tempo passado)
+    u16  toques;    // un       (total de toques)
+    u8   quedas;    // un       (total de quedas)
+    u8   ritmo;     // tqs/min  (toques por minuto)
+} Game;
+static Game G;
+
+#include "g.c.h"
 
 void EEPROM_Load (void) {
     for (int i=0; i<sizeof(Save); i++) {
@@ -70,7 +83,8 @@ void EEPROM_Save (void) {
 }
 
 void EEPROM_Default (void) {
-    S.hit = 0;
+    S.timeout = REF_TIMEOUT * ((u32)1000);
+    S.toq     = 0;
 }
 
 TCFG IN_Cfg (void) {
@@ -91,6 +105,7 @@ TCFG IN_Cfg (void) {
     // nao estava mas agora esta pressionado
     if (!WAS && is) {
         tone(PIN_TONE, NOTE_C2, 50);
+        delay(50);
         NOW = now;
         WAS = true;
         return CFG_NO;
@@ -148,14 +163,22 @@ void setup (void)
     pinMode(PIN_JOGS+JOG_D , INPUT_PULLUP);
 
     EEPROM_Load();
-    goto _CONTINUE;
+    G_All();
+
+    // aparelho religado com jogo terminado
+    if (G.tempo >= S.timeout) {
+        goto _TIMEOUT;
+    } else {
+        goto _CONTINUE;
+    }
 
     // JOGOS
     while (1)
     {
 _RESTART:
         tone(PIN_TONE, NOTE_C5, 2000);
-        S.hit = 0;
+        delay(2000);
+        S.toq = 0;
         EEPROM_Save();
 
 _CONTINUE:
@@ -168,7 +191,7 @@ _CONTINUE:
             switch (cfg) {
                 case CFG_B:
                     goto _RESTART;
-                case CFG_BC:
+                case CFG_BD:
                     EEPROM_Default();
                     goto _RESTART;
             }
@@ -182,10 +205,10 @@ _CONTINUE:
             tone(PIN_TONE, NOTE_C5, 50);
 
             // saque
-            S.hits[S.hit].jog = JOG;
-            S.hits[S.hit].cab = false;
-            S.hits[S.hit].dt  = 0;
-            S.hit++;
+            S.toqs[S.toq].jog = JOG;
+            S.toqs[S.toq].cab = false;
+            S.toqs[S.toq].dt  = 0;
+            S.toq++;
 
             u32 NOW = millis();
 
@@ -201,11 +224,11 @@ _CONTINUE:
                 TJOG jog = IN_Jog();
                 if (jog!=JOG_NO && jog!=JOG)
                 {
-                    S.hits[S.hit].jog = jog;
+                    S.toqs[S.toq].jog = jog;
 
                     u32  now = millis();
                     u32  dt  = now - NOW;
-                    S.hits[S.hit].dt = min(MAX_DT,dt);
+                    S.toqs[S.toq].dt = min(MAX_DT,dt);
 
                     tone(PIN_TONE, NOTE_C5, 50);        // antes de IN_Jog_Alta
 
@@ -213,24 +236,29 @@ _CONTINUE:
                     if (alta) {
                         tone(PIN_TONE, NOTE_C4, 30);
                     }
-                    S.hits[S.hit].cab = alta;
+                    S.toqs[S.toq].cab = alta;
 
-                    S.hit++;
+                    S.toq++;
+                    G_All();
                     JOG = jog;
                     NOW = now;
+
+                    if (G.tempo >= S.timeout) {
+                        goto _TIMEOUT;
+                    }
                 }
             }
 
 _FALL:
             Serial.println("---");
-            Serial.println(S.hit);
+            Serial.println(S.toq);
             Serial.println("---");
-            for (int i=0; i<S.hit; i++) {
-                Serial.print(S.hits[i].jog);
+            for (int i=0; i<S.toq; i++) {
+                Serial.print(S.toqs[i].jog);
                 Serial.print("  ");
-                Serial.print(S.hits[i].cab);
+                Serial.print(S.toqs[i].cab);
                 Serial.print("  ");
-                Serial.println(S.hits[i].dt);
+                Serial.println(S.toqs[i].dt);
             }
 
             tone(PIN_TONE, NOTE_C4, 100);
@@ -242,5 +270,10 @@ _FALL:
 
             EEPROM_Save();
         }
+
+_TIMEOUT:
+        tone(PIN_TONE, NOTE_C2, 2000);
+        delay(2000);
+        while (IN_Cfg() != CFG_B);
     }
 }
