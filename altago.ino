@@ -69,6 +69,7 @@ typedef struct {
 static Game G;
 
 #include "g.c.h"
+#include "serial.c.h"
 
 void EEPROM_Load (void) {
     for (int i=0; i<sizeof(Save); i++) {
@@ -122,7 +123,11 @@ TCFG IN_Cfg (void) {
         if (!IN2 && now-NOW>750) {  //   entao verifico se passou o tempo do 2
             IN2 = true;             //     nao eh mais possivel o 2 ate soltar
             if (digitalRead(PIN_JOGS+JOG_B) == LOW) {
-                return CFG_B;
+                if (digitalRead(PIN_JOGS+JOG_D) == LOW) {
+                    return CFG_BD;
+                } else {
+                    return CFG_B;
+                }
             } else {
                 return CFG_2;
             }
@@ -250,29 +255,20 @@ _CONTINUE:
             }
 
 _FALL:
-            Serial.println("---");
-            Serial.println(S.toq);
-            Serial.println("---");
-            for (int i=0; i<S.toq; i++) {
-                Serial.print(S.toqs[i].jog);
-                Serial.print("  ");
-                Serial.print(S.toqs[i].cab);
-                Serial.print("  ");
-                Serial.println(S.toqs[i].dt);
-            }
-
+            Serial_Placar();
             tone(PIN_TONE, NOTE_C4, 100);
             delay(110);
             tone(PIN_TONE, NOTE_C3, 100);
             delay(110);
             tone(PIN_TONE, NOTE_C2, 300);
             delay(310);
-
             EEPROM_Save();
         }
 
 _TIMEOUT:
         tone(PIN_TONE, NOTE_C2, 2000);
+        EEPROM_Save();
+        Serial_Placar();
         delay(2000);
         while (IN_Cfg() != CFG_B);
     }
