@@ -47,6 +47,13 @@ typedef enum {
     CFG_BD
 } TCFG;
 
+typedef enum {
+    MOD_CEL = 0,
+    MOD_PC
+} TMOD;
+
+TMOD MOD;
+
 typedef struct {
     u16 jog :  2;
     u16 cab :  1;
@@ -70,6 +77,18 @@ static Game G;
 
 #include "g.c.h"
 #include "serial.c.h"
+#include "xcel.c.h"
+#include "pc.c.h"
+
+#define XMOD(xxx,yyy)   \
+    switch (MOD) {      \
+        case MOD_CEL:   \
+            xxx;        \
+            break;      \
+        case MOD_PC:    \
+            yyy;        \
+            break;      \
+    }
 
 void EEPROM_Load (void) {
     for (int i=0; i<sizeof(Save); i++) {
@@ -167,8 +186,16 @@ void setup (void)
     pinMode(PIN_JOGS+JOG_C , INPUT_PULLUP);
     pinMode(PIN_JOGS+JOG_D , INPUT_PULLUP);
 
+    delay(500);
+    if (Serial.available()) {
+        MOD = Serial.read();
+    } else {
+        MOD = MOD_CEL;
+    }
+
     EEPROM_Load();
     G_All();
+    XMOD(CEL_Load(), PC_Load());
 
     // aparelho religado com jogo terminado
     if (G.tempo >= S.timeout) {
@@ -182,9 +209,10 @@ void setup (void)
     {
 _RESTART:
         tone(PIN_TONE, NOTE_C5, 2000);
-        delay(2000);
+        XMOD(CEL_Restart(), PC_Restart());
         S.toq = 0;
         EEPROM_Save();
+        delay(2000);
 
 _CONTINUE:
         // SEQUENCIAS
@@ -202,6 +230,7 @@ _CONTINUE:
             }
             assert(cfg == CFG_2);
             tone(PIN_TONE, NOTE_C7, 500);
+            XMOD(CEL_Go(), PC_Go());
 
             TJOG JOG;
 
@@ -217,12 +246,14 @@ _CONTINUE:
 
             u32 NOW = millis();
 
+            XMOD(CEL_Hit(), PC_Hit());
+
             // TOQUES
             while (1)
             {
                 // queda
                 if (IN_Cfg() == CFG_2) {
-                    goto _FALL;
+                    goto _QUEDA;
                 }
 
                 // toque
@@ -248,14 +279,16 @@ _CONTINUE:
                     JOG = jog;
                     NOW = now;
 
+                    XMOD(CEL_Hit(), PC_Hit());
+
                     if (G.tempo >= S.timeout) {
                         goto _TIMEOUT;
                     }
                 }
             }
 
-_FALL:
-            Serial_Placar();
+_QUEDA:
+            XMOD(CEL_Queda(), PC_Queda());
             tone(PIN_TONE, NOTE_C4, 100);
             delay(110);
             tone(PIN_TONE, NOTE_C3, 100);
@@ -267,8 +300,8 @@ _FALL:
 
 _TIMEOUT:
         tone(PIN_TONE, NOTE_C2, 2000);
+        XMOD(CEL_Timeout(), PC_Timeout());
         EEPROM_Save();
-        Serial_Placar();
         delay(2000);
         while (IN_Cfg() != CFG_B);
     }
